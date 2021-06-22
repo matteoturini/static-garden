@@ -22,7 +22,7 @@ const html = String.raw;
 
 const renderer = {
   code: (code: string, info: string) => {
-    if (code.includes("stockgen!include")) {
+    if (code.includes("sg!include")) {
       if (info === "js" || info === "javascript") {
         consola.success(
           `Injected ${code.split("\n").length} lines of JavaScript code`
