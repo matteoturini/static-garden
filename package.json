@@ -3,6 +3,9 @@
   "version": "1.0.1",
   "main": "src/cli.ts",
   "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "url": "https://github.com/matteoturini/static-garden"
+  },
   "scripts": {
     "watch:compilation": "tsc -w",
     "watch:run": "nodemon dist/cli.js",
