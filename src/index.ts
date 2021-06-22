@@ -5,20 +5,9 @@ import ts from "typescript";
 import marked from "marked";
 import path from "path";
 import consola from "consola";
-import uglify from "uglify-js";
-
-function min(code: string): string {
-  const uglified = uglify.minify(code, { sourceMap: true });
-  if (uglified.error) {
-    consola.error(`Error minifying code; it will be added unmodified.`);
-    consola.error(`Error: ${uglified.error}`);
-    return code;
-  }
-  consola.success(`Minified ${code.split("\n").length} lines of code`);
-  return `${code}`;
-}
-
-const html = String.raw;
+import min from "html-minifier-terser";
+import createDomPurify from "dompurify";
+import { JSDOM } from "jsdom";
 
 const renderer = {
   code: (code: string, info: string) => {
@@ -27,13 +16,14 @@ const renderer = {
         consola.success(
           `Injected ${code.split("\n").length} lines of JavaScript code`
         );
-        return `<script>${min(code)}</script>`;
+        return `<script>${code}</script>`;
       }
       if (info === "css") {
         consola.success(
           `Injected ${code.split("\n").length} lines of CSS styles`
         );
-        return `<style>${code}</script>`;
+        // Inject CSS
+        return `<style>${code}</style>`;
       }
       if (info === "scss") {
         consola.success(
@@ -41,6 +31,7 @@ const renderer = {
             code.split("\n").length
           } lines of SCSS styles`
         );
+        // Compile and inject SASS
         return `<style>${sass
           .renderSync({ data: code })
           .css.toString()}</style>`;
@@ -51,20 +42,14 @@ const renderer = {
             code.split("\n").length
           } lines of TypeScript code`
         );
-        return `<script>${min(ts.transpile(code))}</script>`;
+        return `<script>${ts.transpile(code)}</script>`;
       }
     }
 
     return `<code>${code}</code>`;
   },
   image: (href: string, title: string, text: string) => {
-    return html`<img
-      src="${href}"
-      alt="${text}"
-      title="${title}"
-      decoding="async"
-      loading="lazy"
-    />`;
+    return `<img src="${href}" alt="${text}" title="${title}" decoding="async" loading="lazy">`;
   },
 };
 
@@ -96,39 +81,57 @@ async function main() {
     const pageContents = (
       await fs.readFile(path.join(process.cwd(), "pages", page))
     ).toString();
-    const compiled = marked(pageContents);
+
+    const window = new JSDOM("").window;
+    const DOMPurify = createDomPurify(window);
+    const compiled = DOMPurify.sanitize(marked(pageContents), {
+      ADD_TAGS: ["script", "style"],
+    });
+
     fs.stat(path.join(process.cwd(), "out")).catch(() =>
       fs.mkdir(path.join(process.cwd(), "out"))
     );
+
+    const originalHtml = mainTemplate.replace("{mount}", compiled);
+
+    const minifiedHtml = min.minify(originalHtml, {
+      minifyCSS: true,
+      minifyJS: true,
+      minifyURLs: true,
+      removeRedundantAttributes: true,
+    });
+
     fs.writeFile(
       path.join(process.cwd(), "out", page.replace(/\.md$/, ".html")),
-      mainTemplate.replace("{mount}", compiled)
+      minifiedHtml
     );
     consola.success(`Compiled ${page} to ${page.replace(/\.md$/, ".html")}`);
   }
 
-  fsextra
-    .copy(
-      path.join(process.cwd(), "images"),
-      path.join(process.cwd(), "out", "images")
-    )
-    .then(() =>
-      consola.success(`Copied all images from images/ to out/images/`)
-    )
-    .catch(() => consola.error("Error copying images"));
+  const imagesPath = path.join(process.cwd(), "images");
+  const imagesOutPath = path.join(process.cwd(), "out", "images");
 
-  fsextra
-    .copy(path.join(process.cwd(), "public"), path.join(process.cwd(), "out"))
-    .then(() =>
-      consola.success(`Copied all static assets from public/ to out/`)
-    )
-    .catch(() => consola.error("Error copying static assets"));
+  if (fsextra.existsSync(imagesPath))
+    fsextra
+      .copy(imagesPath, imagesOutPath)
+      .then(() =>
+        consola.success(`Copied all images from images/ to out/images/`)
+      )
+      .catch(() => consola.error("Error copying images"));
+
+  const publicPath = path.join(process.cwd(), "public");
+
+  if (fsextra.existsSync(publicPath))
+    fsextra
+      .copy(path.join(process.cwd(), "public"), path.join(process.cwd(), "out"))
+      .then(() =>
+        consola.success(`Copied all static assets from public/ to out/`)
+      )
+      .catch(() => consola.error("Error copying static assets"));
 }
 
 process.on("uncaughtException", (err) => {
   consola.error(err.message);
-  consola.error(err.stack);
-  consola.error(err.name);
 });
 
 export default main;
